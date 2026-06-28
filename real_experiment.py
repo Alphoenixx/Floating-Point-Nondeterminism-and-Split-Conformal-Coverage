@@ -1,15 +1,42 @@
-import json
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+import json
 import csv
+import environment
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    HAVE_PLT = True
+except Exception as _plt_err:
+    print("WARN matplotlib unavailable, skipping figures:", repr(_plt_err))
+    HAVE_PLT = False
+
+    class _NoPlot:
+        def __getattr__(self, _):
+            return self
+
+        def __call__(self, *a, **k):
+            return self
+
+        def __iter__(self):
+            return iter((self, self))
+
+    plt = _NoPlot()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "results")
 os.makedirs(OUT, exist_ok=True)
 CSV = os.path.join(HERE, "data", "gapminder.csv")
+
+ENV = environment.collect()
+for _line in environment.summary_lines(ENV):
+    print("ENV " + _line)
 
 RNG = np.random.default_rng(1234)
 
@@ -83,9 +110,10 @@ def fp16_chunked(Phi, W, chunk=16, order_seed=None):
     bnds = [(i, min(i + chunk, Dd)) for i in range(0, Dd, chunk)]
     if order_seed is not None:
         np.random.default_rng(order_seed).shuffle(bnds)
-    Pm, Wm = Phi.astype(np.float32), W.astype(np.float32)
+    P64, W64 = Phi.astype(np.float64), W.astype(np.float64)
     for a, b in bnds:
-        acc = (acc.astype(np.float32) + Pm[:, a:b] @ Wm[a:b, :]).astype(np.float16)
+        partial = (P64[:, a:b] @ W64[a:b, :]).astype(np.float32)
+        acc = (acc.astype(np.float32) + partial).astype(np.float16)
     return acc.astype(np.float64)
 
 
@@ -124,7 +152,7 @@ eps_mean = float(jit.mean())
 flip = float((fp16_chunked(Phi_te, W, order_seed=None).argmax(1)
               != fp16_chunked(Phi_te, W, order_seed=7).argmax(1)).mean())
 
-res = {"dataset": "Gapminder (4 continents)", "n_train": n_tr, "n_cal": n_cal,
+res = {"environment": ENV, "dataset": "Gapminder (4 continents)", "n_train": n_tr, "n_cal": n_cal,
        "n_test": int(len(X_te)), "K": K, "D": D, "accuracy": acc, "mean_top_softmax": mtp,
        "eps_max": eps_max, "eps_99": eps_99, "eps_mean": eps_mean, "top1_flip_rate": flip,
        "per_alpha": []}
@@ -167,6 +195,13 @@ fig.tight_layout()
 fig.savefig(f"{OUT}/fig4_realdata_certificate.pdf")
 plt.close(fig)
 
+real_alpha_pass = sum(1 for p in res["per_alpha"] if p["cov_within_cert"] and p["churn_within_cert"])
+real_alpha_total = len(res["per_alpha"])
+real_flip_pass = res["top1_flip_rate"] == 0.0
+real_all_pass = (real_alpha_pass == real_alpha_total) and real_flip_pass
+res["self_check"] = {"alpha_within_cert": real_alpha_pass, "alpha_total": real_alpha_total, "top1_flips_zero": bool(real_flip_pass), "all_passed": bool(real_all_pass)}
 json.dump(res, open(f"{OUT}/results_real.json", "w"), indent=2)
 print("SUMMARY", json.dumps({k: res[k] for k in ["accuracy", "mean_top_softmax", "eps_max", "eps_99", "eps_mean", "top1_flip_rate"]}, indent=2))
 print("PER_ALPHA", json.dumps(res["per_alpha"], indent=2))
+print("SELFCHECK real: {}/{} alpha within certificate, top1_flips={:.0f}, eps_max(fp16)={:.1e}".format(real_alpha_pass, real_alpha_total, res["top1_flip_rate"], res["eps_max"]))
+print("RESULT real: " + ("ALL CERTIFICATE CHECKS PASSED" if real_all_pass else "SOME CHECKS FAILED"))

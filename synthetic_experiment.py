@@ -1,13 +1,40 @@
-import json
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+import json
+import environment
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    HAVE_PLT = True
+except Exception as _plt_err:
+    print("WARN matplotlib unavailable, skipping figures:", repr(_plt_err))
+    HAVE_PLT = False
+
+    class _NoPlot:
+        def __getattr__(self, _):
+            return self
+
+        def __call__(self, *a, **k):
+            return self
+
+        def __iter__(self):
+            return iter((self, self))
+
+    plt = _NoPlot()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "results")
 os.makedirs(OUT, exist_ok=True)
+
+ENV = environment.collect()
+for _line in environment.summary_lines(ENV):
+    print("ENV " + _line)
 
 RNG = np.random.default_rng(1234)
 
@@ -60,10 +87,15 @@ def scores(logits, labels):
 
 
 def logits_fp32(Phi, W, perm=None):
-    P32, W32 = Phi.astype(np.float32), W.astype(np.float32)
-    if perm is None:
-        return (P32 @ W32).astype(np.float64)
-    return (P32[:, perm] @ W32[perm, :]).astype(np.float64)
+    P32 = Phi.astype(np.float32)
+    W32 = W.astype(np.float32)
+    n, D = P32.shape
+    Kk = W32.shape[1]
+    order = np.arange(D) if perm is None else np.asarray(perm)
+    acc = np.zeros((n, Kk), dtype=np.float32)
+    for j in order:
+        acc = (acc + P32[:, int(j):int(j) + 1] * W32[int(j):int(j) + 1, :]).astype(np.float32)
+    return acc.astype(np.float64)
 
 
 def logits_fp16_chunked(Phi, W, chunk=64, order_seed=None):
@@ -73,9 +105,9 @@ def logits_fp16_chunked(Phi, W, chunk=64, order_seed=None):
     if order_seed is not None:
         np.random.default_rng(order_seed).shuffle(bnds)
     acc = np.zeros((n, Kk), dtype=np.float16)
-    Pm, Wm = Phi.astype(np.float32), W.astype(np.float32)
+    P64, W64 = Phi.astype(np.float64), W.astype(np.float64)
     for a, b in bnds:
-        partial = Pm[:, a:b] @ Wm[a:b, :]
+        partial = (P64[:, a:b] @ W64[a:b, :]).astype(np.float32)
         acc = (acc.astype(np.float32) + partial).astype(np.float16)
     return acc.astype(np.float64)
 
@@ -108,7 +140,7 @@ jit = np.abs(sA_te - sB_te)
 eps_max, eps_99, eps_mean = float(jit.max()), float(np.percentile(jit, 99)), float(jit.mean())
 flip_top1 = float((logA_te.argmax(1) != logB_te.argmax(1)).mean())
 
-results = {"K": K, "d": d, "D_main": D_main, "chunk": 64,
+results = {"environment": ENV, "K": K, "d": d, "D_main": D_main, "chunk": 64,
            "N_train": N_train, "N_cal": N_cal, "N_test": N_test,
            "test_accuracy": acc, "mean_top_softmax": mtp,
            "eps_fp32_max": fp32_jit,
@@ -197,7 +229,124 @@ fig.tight_layout()
 fig.savefig(f"{OUT}/fig3_score_band.pdf")
 plt.close(fig)
 
+def quant_logits(Phi, W, chunk=64, mbits=None, mode="round", order_seed=None):
+    n, D = Phi.shape
+    Kk = W.shape[1]
+    bnds = [(i, min(i + chunk, D)) for i in range(0, D, chunk)]
+    if order_seed is not None:
+        np.random.default_rng(order_seed).shuffle(bnds)
+    P64, W64 = Phi.astype(np.float64), W.astype(np.float64)
+    acc = np.zeros((n, Kk), dtype=np.float64)
+    if mbits is None:
+        for a, b in bnds:
+            acc = acc + P64[:, a:b] @ W64[a:b, :]
+        return acc
+
+    def q(x):
+        x = np.asarray(x, dtype=np.float64)
+        out = np.zeros_like(x)
+        nz = x != 0
+        ax = np.abs(x[nz])
+        e = np.floor(np.log2(ax))
+        scale = 2.0 ** (e - mbits)
+        r = ax / scale
+        qq = np.floor(r) if mode == "trunc" else np.round(r)
+        out[nz] = np.sign(x[nz]) * qq * scale
+        return out
+
+    for a, b in bnds:
+        acc = q(acc + q(P64[:, a:b] @ W64[a:b, :]))
+    return acc
+
+
+SRNG = np.random.default_rng(20240517)
+K_s, d_s, D_s = 10, 100, 512
+Ntr_s, Ncal_s, Nte_s = 8000, 40000, 40000
+Ntot_s = Ntr_s + Ncal_s + Nte_s
+CS_s = 1.0
+cen_s = SRNG.normal(0, 1.0, size=(K_s, d_s)) * CS_s
+ys = SRNG.integers(0, K_s, size=Ntot_s)
+Xs = cen_s[ys] + SRNG.normal(0, 1.0, size=(Ntot_s, d_s))
+mu_s, sd_s = Xs[:Ntr_s].mean(0), Xs[:Ntr_s].std(0) + 1e-8
+Xs = (Xs - mu_s) / sd_s
+rs = np.random.default_rng(7)
+Rs = rs.normal(0, 1.0 / np.sqrt(d_s), size=(d_s, D_s))
+bs = rs.normal(0, 0.1, size=(D_s,))
+Phs = np.maximum(0.0, Xs @ Rs + bs)
+pmu_s, psd_s = Phs[:Ntr_s].mean(0), Phs[:Ntr_s].std(0) + 1e-8
+Phs = (Phs - pmu_s) / psd_s
+Phtr_s, Phcal_s, Phte_s = Phs[:Ntr_s], Phs[Ntr_s:Ntr_s + Ncal_s], Phs[Ntr_s + Ncal_s:]
+ytr_s, ycal_s, yte_s = ys[:Ntr_s], ys[Ntr_s:Ntr_s + Ncal_s], ys[Ntr_s + Ncal_s:]
+Ws = train_softmax(Phtr_s, ytr_s, K_s, iters=300, lr=0.5, l2=0.05)
+ref_cal_s = quant_logits(Phcal_s, Ws)
+ref_te_s = quant_logits(Phte_s, Ws)
+acc_s = float((softmax(ref_te_s).argmax(1) == yte_s).mean())
+mtp_s = float(softmax(ref_te_s).max(1).mean())
+scal_s = scores(ref_cal_s, ycal_s)
+sref_s = scores(ref_te_s, yte_s)
+stress = {"K": K_s, "d": d_s, "D": D_s, "N_train": Ntr_s, "N_cal": Ncal_s, "N_test": Nte_s,
+          "center_scale": CS_s, "test_accuracy": acc_s, "mean_top_softmax": mtp_s, "regimes": []}
+stress_alphas = [0.05, 0.10, 0.20]
+stress_plot = {}
+for name, kw in [("fp16_round", dict(mbits=10, mode="round", order_seed=7)),
+                 ("fp8_trunc", dict(mbits=7, mode="trunc", order_seed=7))]:
+    dep_s = quant_logits(Phte_s, Ws, **kw)
+    sdep_s = scores(dep_s, yte_s)
+    eps_s = np.abs(sdep_s - sref_s)
+    epsmax_s, epsmean_s = float(eps_s.max()), float(eps_s.mean())
+    flips_s = float((dep_s.argmax(1) != ref_te_s.argmax(1)).mean())
+    rec = {"name": name, "eps_max": epsmax_s, "eps_mean": epsmean_s,
+           "top1_flip_rate": flips_s, "per_alpha": []}
+    losses = []
+    for alpha in stress_alphas:
+        floor = float(np.sqrt(alpha * (1 - alpha) / Nte_s))
+        qh = conformal_qhat(scal_s, alpha)
+        cov_ref = float(np.mean(sref_s <= qh))
+        cov_dep = float(np.mean(sdep_s <= qh))
+        loss = cov_ref - cov_dep
+        fsup = sup_density(scal_s, qh - epsmax_s, qh + epsmax_s)
+        rec["per_alpha"].append({"alpha": alpha, "qhat": float(qh), "sampling_floor": floor,
+            "cov_ref": cov_ref, "cov_dep": cov_dep, "cov_loss": loss,
+            "loss_over_floor": loss / floor, "f_sup": fsup,
+            "cert_cov_loss": fsup * epsmax_s,
+            "loss_within_cert": bool(loss <= fsup * epsmax_s + 1e-12)})
+        losses.append(loss)
+    stress["regimes"].append(rec)
+    stress_plot[name] = losses
+results["stress_regime"] = stress
+
+xpos = np.arange(len(stress_alphas))
+bw = 0.36
+floor_s = [np.sqrt(a * (1 - a) / Nte_s) for a in stress_alphas]
+fig, ax = plt.subplots(figsize=(5.6, 3.8))
+ax.bar(xpos - bw / 2, [abs(v) for v in stress_plot["fp16_round"]], bw,
+       color="steelblue", label="fp16 round-to-nearest (unbiased)")
+ax.bar(xpos + bw / 2, [abs(v) for v in stress_plot["fp8_trunc"]], bw,
+       color="indianred", label="fp8 truncating accumulator (biased)")
+for i, fl in enumerate(floor_s):
+    ax.hlines(fl, xpos[i] - 0.46, xpos[i] + 0.46, color="black", ls="--", lw=1.3)
+ax.plot([], [], "k--", lw=1.3, label=r"sampling floor $\sqrt{\alpha(1-\alpha)/n}$")
+ax.set_yscale("log")
+ax.set_xticks(xpos)
+ax.set_xticklabels([rf"$\alpha={a}$" for a in stress_alphas])
+ax.set_ylabel("measured coverage loss")
+ax.set_title(rf"Large-$n$ stress regime ($n={Nte_s}$)")
+ax.legend(fontsize=8, loc="upper left")
+ax.grid(True, which="both", axis="y", alpha=0.3)
+fig.tight_layout()
+fig.savefig(f"{OUT}/fig5_above_floor.pdf")
+plt.close(fig)
+
+syn_alpha_pass = sum(1 for p in results["per_alpha"] if p["cov_within_cert"] and p["churn_within_cert"])
+syn_alpha_total = len(results["per_alpha"])
+syn_stress_pass = all(pa["loss_within_cert"] for rg in results["stress_regime"]["regimes"] for pa in rg["per_alpha"])
+syn_flip_pass = results["top1_flip_rate"] == 0.0
+syn_all_pass = (syn_alpha_pass == syn_alpha_total) and syn_stress_pass and syn_flip_pass
+results["self_check"] = {"alpha_within_cert": syn_alpha_pass, "alpha_total": syn_alpha_total, "stress_within_cert": bool(syn_stress_pass), "top1_flips_zero": bool(syn_flip_pass), "all_passed": bool(syn_all_pass)}
 json.dump(results, open(f"{OUT}/results.json", "w"), indent=2)
 print("SUMMARY", json.dumps({k: results[k] for k in ["test_accuracy", "mean_top_softmax", "eps_fp32_max", "eps_max", "eps_99", "eps_mean", "top1_flip_rate"]}, indent=2))
 print("PER_ALPHA", json.dumps(results["per_alpha"], indent=2))
 print("WIDTH", json.dumps(sweep, indent=2))
+print("STRESS", json.dumps(stress, indent=2))
+print("SELFCHECK synthetic: {}/{} alpha within certificate, stress {}, top1_flips={:.0f}, eps_max(fp16)={:.1e}".format(syn_alpha_pass, syn_alpha_total, "PASS" if syn_stress_pass else "FAIL", results["top1_flip_rate"], results["eps_max"]))
+print("RESULT synthetic: " + ("ALL CERTIFICATE CHECKS PASSED" if syn_all_pass else "SOME CHECKS FAILED"))
