@@ -1,0 +1,6 @@
+FROM python:3.13-slim
+ENV OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 PYTHONHASHSEED=0 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY . /app
+RUN pip install --no-cache-dir numpy==2.4.1 matplotlib==3.10.8
+CMD ["python", "-u", "run_all.py"]
