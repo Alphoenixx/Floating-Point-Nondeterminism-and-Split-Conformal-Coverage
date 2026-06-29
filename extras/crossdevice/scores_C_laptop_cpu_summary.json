@@ -1,0 +1,65 @@
+{
+  "label": "C_laptop_cpu",
+  "device": "cpu",
+  "artifact_sha256": "5425bbccbb1b62008a20349d52e4a27fb1834745bcda9223f401415bfd8a166e",
+  "n_cal": 8000,
+  "n_te": 10000,
+  "environment": {
+    "python_version": "3.14.3",
+    "python_implementation": "CPython",
+    "python_compiler": "MSC v.1944 64 bit (AMD64)",
+    "os_system": "Windows",
+    "os_release": "11",
+    "os_version": "10.0.26200",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "machine": "AMD64",
+    "architecture": "64bit",
+    "cpu": "Intel64 Family 6 Model 186 Stepping 3, GenuineIntel",
+    "thread_env": {
+      "OMP_NUM_THREADS": null,
+      "OPENBLAS_NUM_THREADS": null,
+      "MKL_NUM_THREADS": null,
+      "NUMEXPR_NUM_THREADS": null,
+      "VECLIB_MAXIMUM_THREADS": null
+    },
+    "numpy_version": "2.4.6",
+    "matplotlib_version": "3.11.0",
+    "blas": {
+      "blas": {
+        "name": "scipy-openblas",
+        "version": "0.3.31.188.0"
+      },
+      "lapack": {
+        "name": "scipy-openblas",
+        "version": "0.3.31.188.0"
+      },
+      "simd_baseline": [
+        "X86_V2"
+      ],
+      "simd_found": [
+        "X86_V3"
+      ]
+    },
+    "packages": {
+      "contourpy": "1.3.3",
+      "cycler": "0.12.1",
+      "fonttools": "4.63.0",
+      "kiwisolver": "1.5.0",
+      "matplotlib": "3.11.0",
+      "numpy": "2.4.6",
+      "packaging": "26.2",
+      "pillow": "12.2.0",
+      "pip": "25.3",
+      "pyparsing": "3.3.2",
+      "python-dateutil": "2.9.0.post0",
+      "six": "1.17.0"
+    }
+  },
+  "variants": {
+    "fp32": {
+      "scores_cal_mean": 0.17344365367525044,
+      "scores_te_mean": 0.17346892775254608,
+      "test_accuracy": 0.9845
+    }
+  }
+}
