@@ -1,0 +1,40 @@
+{
+  "label": "B_vit_gpu",
+  "device": "cuda",
+  "weights_tag": "ViT_B_16_Weights.IMAGENET1K_V1",
+  "gpu_name": "NVIDIA GeForce GTX 1660 SUPER",
+  "tensor_cores": false,
+  "seed": 20240601,
+  "n_cal": 4000,
+  "n_test": 4000,
+  "batch": 64,
+  "torch_version": "2.6.0+cu124",
+  "torch_cuda": "12.4",
+  "variants": {
+    "fp32": {
+      "scores_cal_mean": 0.9782138466835022,
+      "scores_te_mean": 0.9782508611679077,
+      "test_self_agree": 1.0
+    },
+    "fp16": {
+      "scores_cal_mean": 0.9781716465950012,
+      "scores_te_mean": 0.9782077074050903,
+      "test_self_agree": 0.998
+    }
+  },
+  "envelope": {
+    "logit_te_fp16_vs_fp32": {
+      "eps_max": 0.007578611373901367,
+      "eps_mean": 0.0005977813788799649,
+      "eps_99": 0.0020486116409301758,
+      "signed_mean": -1.8772994115446635e-05
+    },
+    "score_te_fp16_vs_fp32": {
+      "eps_max": 0.00020992755889892578,
+      "eps_mean": 4.85275536775589e-05,
+      "eps_99": 0.0001353037357330322,
+      "signed_mean": -4.317934811115265e-05
+    }
+  },
+  "artifact_sha256": "cb531d52c2ed64cd5e69184edac518c40a4443b25685d94a5c4dca6715e9400a"
+}

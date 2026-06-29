@@ -1,0 +1,60 @@
+{
+  "artifact_consensus": true,
+  "n_distinct_artifacts": 1,
+  "all_within_cert": true,
+  "rows": [
+    {
+      "eps_max": 0.00020992755889892578,
+      "eps_99": 0.0001353037357330322,
+      "eps_mean": 4.85275536775589e-05,
+      "top1_flip_rate": 0.002,
+      "per_alpha": [
+        {
+          "alpha": 0.05,
+          "qhat": 0.9835622310638428,
+          "cov_source": 0.95475,
+          "cov_target": 0.95475,
+          "cov_loss": 0.0,
+          "abs_cov_loss": 0.0,
+          "churn": 0.0005,
+          "f_sup": 57.05702688482364,
+          "cert_cov_loss": 0.011977842371961407,
+          "cert_churn": 0.023955684743922814,
+          "cov_within_cert": true,
+          "churn_within_cert": true
+        },
+        {
+          "alpha": 0.1,
+          "qhat": 0.9826714992523193,
+          "cov_source": 0.90725,
+          "cov_target": 0.909,
+          "cov_loss": -0.0017500000000000293,
+          "abs_cov_loss": 0.0017500000000000293,
+          "churn": 0.00175,
+          "f_sup": 70.48220968125274,
+          "cert_cov_loss": 0.014796158224187622,
+          "cert_churn": 0.029592316448375244,
+          "cov_within_cert": true,
+          "churn_within_cert": true
+        },
+        {
+          "alpha": 0.2,
+          "qhat": 0.981440007686615,
+          "cov_source": 0.80775,
+          "cov_target": 0.809,
+          "cov_loss": -0.0012500000000000844,
+          "abs_cov_loss": 0.0012500000000000844,
+          "churn": 0.00175,
+          "f_sup": 105.7233145218791,
+          "cert_cov_loss": 0.022194237336281432,
+          "cert_churn": 0.044388474672562864,
+          "cov_within_cert": true,
+          "churn_within_cert": true
+        }
+      ],
+      "pair": "B_vit_gpu:fp32->B_vit_gpu:fp16",
+      "source": "B_vit_gpu:fp32",
+      "target": "B_vit_gpu:fp16"
+    }
+  ]
+}
